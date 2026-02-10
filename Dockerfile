@@ -22,6 +22,9 @@ WORKDIR /app
 # Copy built frontend
 COPY --from=build /app/dist ./dist
 
+# Copy shared engine source (backend imports from src/engines/)
+COPY --from=build /app/src ./src
+
 # Copy backend with production deps
 COPY --from=build /app/backend ./backend
 
