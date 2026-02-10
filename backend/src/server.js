@@ -3,6 +3,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import reportController from './controllers/report.controller.js';
+import propertyController from './controllers/property.controller.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -20,6 +21,7 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/reports', reportController);
+app.use('/api/property', propertyController);
 
 // In production, serve the built frontend
 if (process.env.NODE_ENV === 'production') {

@@ -96,3 +96,31 @@ export async function generateReport(formData) {
 
   return response.data;
 }
+
+/**
+ * Look up a property address via OSM geocoding + terrain analysis.
+ * Returns geocoded location, lot dimensions, terrain data, and estimated R-Code.
+ */
+export async function lookupProperty(address) {
+  const response = await request('/property/lookup', {
+    method: 'POST',
+    body: JSON.stringify({ address }),
+  });
+
+  return response;
+}
+
+/**
+ * Generate mixed dwelling scenarios for a property.
+ * Returns ranked scenarios with cost analysis.
+ */
+export async function generateScenarios(params) {
+  const { property, financial, marketData } = params;
+
+  const response = await request('/reports/generate/scenarios', {
+    method: 'POST',
+    body: JSON.stringify({ property, financial, marketData }),
+  });
+
+  return response.data;
+}

@@ -1,13 +1,14 @@
 import { useState, useCallback } from 'react';
-import { Building2, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from 'lucide-react';
+import { Building2, ChevronLeft, ChevronRight, Loader2, AlertTriangle, BarChart3 } from 'lucide-react';
 import WizardProgress from './components/WizardProgress';
 import Step1PropertyDetails from './components/Step1PropertyDetails';
 import Step2FinancialInputs from './components/Step2FinancialInputs';
 import Step3SiteContext from './components/Step3SiteContext';
 import Step4ReportPreferences from './components/Step4ReportPreferences';
 import ResultsDashboard from './components/ResultsDashboard';
+import ScenarioComparison from './components/ScenarioComparison';
 import { generatePDF } from './engines/pdfGenerator';
-import { generateReport, ApiError } from './services/api';
+import { generateReport, generateScenarios, ApiError } from './services/api';
 
 const DEFAULT_FORM = {
   // Step 1
@@ -19,6 +20,8 @@ const DEFAULT_FORM = {
   lotWidth: '',
   lotDepth: '',
   rCode: 'R30',
+  terrainAnalysis: null,
+  propertyLookupData: null,
   // Step 2
   landCost: '',
   targetMargin: 20,
@@ -59,8 +62,10 @@ function App() {
   const [step, setStep] = useState(1);
   const [formData, setFormData] = useState(DEFAULT_FORM);
   const [results, setResults] = useState(null);
+  const [scenarioResults, setScenarioResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [showScenarios, setShowScenarios] = useState(false);
 
   const canProceedStep1 = formData.lotArea && formData.lotWidth && formData.lotDepth && formData.rCode;
   const canProceedStep2 = formData.landCost;
@@ -72,6 +77,7 @@ function App() {
     try {
       const data = await generateReport(formData);
       setResults(data);
+      setShowScenarios(false);
     } catch (err) {
       console.error('Analysis error:', err);
       if (err instanceof ApiError) {
@@ -86,6 +92,58 @@ function App() {
     }
   }, [formData]);
 
+  const runScenarios = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const data = await generateScenarios({
+        property: {
+          lotArea: formData.lotArea,
+          lotWidth: formData.lotWidth,
+          lotDepth: formData.lotDepth,
+          rCode: formData.rCode,
+          terrainAnalysis: formData.terrainAnalysis,
+        },
+        financial: {
+          landCost: formData.landCost,
+          constructionQuality: formData.constructionQuality,
+          debtRatio: formData.debtRatio,
+          interestRate: formData.interestRate,
+          timelineMonths: formData.timelineMonths,
+        },
+        marketData: {
+          prices: {
+            '2bed': Number(formData.price_2bed) || undefined,
+            '3bed': Number(formData.price_3bed) || undefined,
+            '4bed': Number(formData.price_4bed) || undefined,
+          },
+        },
+      });
+      setScenarioResults(data);
+      setShowScenarios(true);
+      setResults(null);
+    } catch (err) {
+      console.error('Scenario generation error:', err);
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else if (err.message === 'Failed to fetch') {
+        setError('Unable to connect to the server. Please ensure the backend is running.');
+      } else {
+        setError('An unexpected error occurred generating scenarios.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [formData]);
+
+  const handleSelectScenario = useCallback((scenario) => {
+    // After selecting a scenario, run the main report generation
+    // with overridden form data matching the scenario's mix
+    // For now, just run the standard analysis (which uses the yield engine's own optimization)
+    runAnalysis();
+  }, [runAnalysis]);
+
   const handleGeneratePDF = useCallback(() => {
     if (!results) return;
     try {
@@ -98,6 +156,8 @@ function App() {
 
   const handleReset = () => {
     setResults(null);
+    setScenarioResults(null);
+    setShowScenarios(false);
     setError(null);
     setStep(1);
     setFormData(DEFAULT_FORM);
@@ -129,9 +189,52 @@ function App() {
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-center">
           <Loader2 className="mx-auto h-12 w-12 animate-spin text-emerald-600" />
-          <h2 className="mt-4 text-xl font-bold text-slate-900">Generating Feasibility Analysis</h2>
-          <p className="mt-2 text-sm text-slate-500">Calculating yield, costs, and risk assessment...</p>
+          <h2 className="mt-4 text-xl font-bold text-slate-900">
+            {showScenarios || scenarioResults ? 'Generating Scenarios' : 'Generating Feasibility Analysis'}
+          </h2>
+          <p className="mt-2 text-sm text-slate-500">
+            {showScenarios || scenarioResults
+              ? 'Calculating mixed dwelling scenarios with terrain-adjusted costs...'
+              : 'Calculating yield, costs, and risk assessment...'}
+          </p>
         </div>
+      </div>
+    );
+  }
+
+  // Show scenario comparison view
+  if (showScenarios && scenarioResults) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto flex max-w-5xl items-center gap-3 px-6 py-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-600">
+              <Building2 className="text-white" size={22} />
+            </div>
+            <div>
+              <h1 className="text-lg font-bold text-slate-900">Feasibility Engine</h1>
+              <p className="text-xs text-slate-500">Perth Property Development Analysis</p>
+            </div>
+          </div>
+        </header>
+        <main className="mx-auto max-w-5xl px-6 py-8">
+          <ScenarioComparison
+            scenarios={scenarioResults.scenarios}
+            onSelectScenario={handleSelectScenario}
+          />
+          <div className="mt-8 flex justify-center gap-3">
+            <button onClick={handleReset} className="btn-secondary">
+              <ChevronLeft size={18} />
+              Start Over
+            </button>
+            <button onClick={() => { setShowScenarios(false); setStep(4); }} className="btn-secondary">
+              Back to Wizard
+            </button>
+            <button onClick={runAnalysis} className="btn-primary">
+              Generate Full Report
+            </button>
+          </div>
+        </main>
       </div>
     );
   }
@@ -156,6 +259,13 @@ function App() {
             onGeneratePDF={handleGeneratePDF}
             onReset={handleReset}
           />
+          {/* Compare Scenarios button */}
+          <div className="mt-6 flex justify-center">
+            <button onClick={runScenarios} className="btn-secondary text-sm">
+              <BarChart3 size={16} />
+              Compare Mixed Scenarios
+            </button>
+          </div>
         </main>
       </div>
     );
@@ -214,9 +324,15 @@ function App() {
               <ChevronRight size={18} />
             </button>
           ) : (
-            <button onClick={runAnalysis} className="btn-primary text-base px-8 py-3">
-              Generate Report
-            </button>
+            <div className="flex gap-3">
+              <button onClick={runScenarios} className="btn-secondary">
+                <BarChart3 size={18} />
+                Compare Scenarios
+              </button>
+              <button onClick={runAnalysis} className="btn-primary text-base px-8 py-3">
+                Generate Report
+              </button>
+            </div>
           )}
         </div>
       </main>

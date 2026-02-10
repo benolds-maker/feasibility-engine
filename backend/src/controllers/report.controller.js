@@ -4,6 +4,8 @@ import yieldService from '../services/yield.service.js';
 import rcodesService from '../services/rcodes.service.js';
 import financialService from '../services/financial.service.js';
 import riskService from '../services/risk.service.js';
+import mixedScenarioService from '../services/mixedScenario.service.js';
+import costingService from '../services/costing.service.js';
 
 const router = Router();
 
@@ -175,6 +177,88 @@ router.post('/generate/pdf', validateReportRequest, async (req, res, next) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(Buffer.from(buffer));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/reports/generate/scenarios
+router.post('/generate/scenarios', (req, res, next) => {
+  try {
+    const { property, financial = {}, marketData = {} } = req.body;
+
+    if (!property || !property.lotArea || !property.rCode) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Property lotArea and rCode are required.' },
+      });
+    }
+
+    const lotArea = Number(property.lotArea);
+    const rCode = property.rCode;
+
+    // 1. Calculate buildable area constraints
+    const buildable = rcodesService.calculateBuildableArea(lotArea, rCode);
+    if (!buildable) {
+      return res.status(400).json({
+        success: false,
+        error: { message: `Invalid R-Code: ${rCode}` },
+      });
+    }
+
+    // 2. Generate mixed scenarios
+    const scenarios = mixedScenarioService.generateMixedScenarios(
+      { lotArea, lotWidth: Number(property.lotWidth) || 18, lotDepth: Number(property.lotDepth) || 40, rCode },
+      { maxFootprint: buildable.maxSiteCoverage, maxGFA: buildable.maxGFA },
+      marketData
+    );
+
+    // 3. For each scenario, calculate terrain-adjusted costs and financials
+    const landCost = Number(financial.landCost) || 650000;
+    const terrainAnalysis = property.terrainAnalysis || null;
+
+    const enrichedScenarios = scenarios.map(scenario => {
+      const costResult = costingService.calculateTotalCost({
+        totalGFA: scenario.totalGFA,
+        totalUnits: scenario.totalUnits,
+        lotArea,
+        terrainAnalysis,
+        constructionQuality: financial.constructionQuality || 'standard',
+        landCost,
+        timelineMonths: Number(financial.timelineMonths) || 18,
+        interestRate: (Number(financial.interestRate) || 7.5) / 100,
+        debtRatio: (Number(financial.debtRatio) || 70) / 100,
+      });
+
+      const grv = scenario.estimatedGRV;
+      const tdc = costResult.totalDevelopmentCost;
+      const grossProfit = grv - tdc;
+      const profitMargin = grv > 0 ? grossProfit / grv : 0;
+
+      return {
+        ...scenario,
+        costs: costResult,
+        financials: {
+          grv,
+          tdc,
+          grossProfit,
+          profitMargin,
+        },
+      };
+    });
+
+    // 4. Rank by profit margin (descending)
+    enrichedScenarios.sort((a, b) => b.financials.profitMargin - a.financials.profitMargin);
+    enrichedScenarios.forEach((s, i) => { s.rank = i + 1; });
+
+    res.json({
+      success: true,
+      data: {
+        scenarios: enrichedScenarios,
+        terrainAnalysis,
+        buildableArea: buildable,
+      },
+    });
   } catch (err) {
     next(err);
   }
