@@ -196,20 +196,22 @@ router.post('/generate/scenarios', (req, res, next) => {
 
     const lotArea = Number(property.lotArea);
     const rCode = property.rCode;
+    const lotWidth = Number(property.lotWidth) || 18;
+    const lotDepth = Number(property.lotDepth) || 40;
 
-    // 1. Calculate buildable area constraints
-    const buildable = rcodesService.calculateBuildableArea(lotArea, rCode);
-    if (!buildable) {
+    // Validate R-Code
+    const rules = rcodesService.getRCodeRules(rCode);
+    if (!rules) {
       return res.status(400).json({
         success: false,
         error: { message: `Invalid R-Code: ${rCode}` },
       });
     }
 
-    // 2. Generate mixed scenarios
+    // Generate mixed scenarios — service derives all constraints from R-Code rules directly
     const scenarios = mixedScenarioService.generateMixedScenarios(
-      { lotArea, lotWidth: Number(property.lotWidth) || 18, lotDepth: Number(property.lotDepth) || 40, rCode },
-      { maxFootprint: buildable.maxSiteCoverage, maxGFA: buildable.maxGFA },
+      { lotArea, lotWidth, lotDepth, rCode },
+      null,
       marketData
     );
 
@@ -256,7 +258,14 @@ router.post('/generate/scenarios', (req, res, next) => {
       data: {
         scenarios: enrichedScenarios,
         terrainAnalysis,
-        buildableArea: buildable,
+        rCodeRules: {
+          rCode,
+          maxPlotRatio: rules.maxPlotRatio,
+          maxSiteCoverage: rules.maxSiteCoverage,
+          minOpenSpace: rules.minOpenSpace,
+          minLotSize: rules.minLotSize,
+          maxGFA: lotArea * rules.maxPlotRatio,
+        },
       },
     });
   } catch (err) {

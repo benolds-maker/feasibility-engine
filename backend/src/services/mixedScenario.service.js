@@ -1,7 +1,7 @@
 // Mixed Dwelling Scenario Generator
 // Generates 7 mixed-dwelling configurations for comparison analysis
 
-import { calculateBuildableArea } from '../../../src/engines/rCodesEngine.js';
+import { getRCodeRules, calculateParkingRequirements } from '../../../src/engines/rCodesEngine.js';
 
 // Unit templates: footprint = ground floor only (2-storey assumed), gfa = total across all levels
 // Footprints aligned with yield engine: 2-storey townhouses where GFA ≈ 2× footprint
@@ -64,23 +64,45 @@ const SCENARIO_DEFINITIONS = [
   },
 ];
 
+// Determine site layout type based on lot proportions (matching yield engine logic)
+function determineSiteLayout(lotWidth, lotDepth) {
+  const ratio = lotDepth / lotWidth;
+  if (ratio > 2.5) return 'battle-axe';
+  if (lotWidth > lotDepth * 1.2) return 'wide-frontage';
+  return 'standard';
+}
+
+// Calculate infrastructure area (matching yield engine logic)
+function calculateInfrastructureArea(numDwellings, layout) {
+  const drivewayWidth = numDwellings > 3 ? 6 : 3.5;
+  const drivewayLength = layout === 'battle-axe' ? 25 : 15;
+  const drivewayArea = drivewayWidth * drivewayLength;
+
+  const turningArea = numDwellings > 4 ? 50 : 0;
+
+  const commonLandscaping = numDwellings * 8;
+
+  return {
+    drivewayArea,
+    turningArea,
+    commonLandscaping,
+    totalInfraArea: drivewayArea + turningArea + commonLandscaping,
+  };
+}
+
 class MixedScenarioService {
   /**
    * Generate all mixed scenarios that fit the site constraints.
    * @param {Object} property - { lotArea, lotWidth, lotDepth, rCode }
-   * @param {Object} constraints - Override constraints (optional)
+   * @param {Object} _constraints - Unused (kept for API compat, constraints derived from R-Code rules)
    * @param {Object} marketData - { prices: { 2bed, 3bed, 4bed } }
    * @returns {Array<Object>} Array of viable scenarios sorted by estimated profit margin
    */
-  generateMixedScenarios(property, constraints, marketData) {
-    const { lotArea, rCode } = property;
+  generateMixedScenarios(property, _constraints, marketData) {
+    const { lotArea, lotWidth, lotDepth, rCode } = property;
 
-    // Get R-Code buildable area constraints
-    const buildable = calculateBuildableArea(lotArea, rCode);
-    if (!buildable) return [];
-
-    const maxFootprint = constraints?.maxFootprint || buildable.maxSiteCoverage;
-    const maxGFA = constraints?.maxGFA || buildable.maxGFA;
+    const rules = getRCodeRules(rCode);
+    if (!rules) return [];
 
     const defaultPrices = { '2bed': 550000, '3bed': 650000, '4bed': 780000 };
     const prices = marketData?.prices || defaultPrices;
@@ -88,10 +110,12 @@ class MixedScenarioService {
     const scenarios = [];
 
     for (const def of SCENARIO_DEFINITIONS) {
-      const config = this.calculateMixedConfig(maxFootprint, maxGFA, UNIT_TEMPLATES, def.ratios);
+      const config = this.calculateMixedConfig(
+        lotArea, lotWidth, lotDepth, rules, UNIT_TEMPLATES, def.ratios
+      );
 
       if (config) {
-        const scenario = this.createScenario(def, config, prices, lotArea);
+        const scenario = this.createScenario(def, config, prices, lotArea, rules);
         if (scenario) {
           scenarios.push(scenario);
         }
@@ -102,15 +126,19 @@ class MixedScenarioService {
   }
 
   /**
-   * Calculate the optimal unit counts for a given ratio within constraints.
-   * Iterates from 4 to 20 total units, checks footprint/GFA, requires 70–95% utilization.
-   * @returns {Object|null} Best config or null if none viable
+   * Calculate the optimal unit counts for a given ratio within R-Code constraints.
+   * Iterates from 2 to 20 total units, applies full compliance checks including
+   * infrastructure, parking, plot ratio, site coverage, open space, and min lot size.
+   * @returns {Object|null} Best compliant config or null if none viable
    */
-  calculateMixedConfig(maxFootprint, maxGFA, templates, ratios) {
+  calculateMixedConfig(lotArea, lotWidth, lotDepth, rules, templates, ratios) {
     let bestConfig = null;
     let bestUtilization = 0;
 
-    for (let totalTarget = 4; totalTarget <= 20; totalTarget++) {
+    const layout = determineSiteLayout(lotWidth, lotDepth);
+    const maxGFA = lotArea * rules.maxPlotRatio;
+
+    for (let totalTarget = 2; totalTarget <= 20; totalTarget++) {
       // Convert ratios to unit counts (round to whole numbers)
       const counts = {};
       let assigned = 0;
@@ -119,7 +147,6 @@ class MixedScenarioService {
       for (let i = 0; i < types.length; i++) {
         const type = types[i];
         if (i === types.length - 1) {
-          // Last type gets the remainder
           counts[type] = totalTarget - assigned;
         } else {
           counts[type] = Math.round(totalTarget * ratios[type]);
@@ -151,15 +178,36 @@ class MixedScenarioService {
         }
       }
 
-      // Check constraints
-      if (totalFootprint > maxFootprint) continue;
-      if (totalGFA > maxGFA) continue;
+      // Infrastructure area (matching yield engine)
+      const infra = calculateInfrastructureArea(actualTotal, layout);
 
-      // Check utilization (50–95% of maxGFA)
+      // Visitor parking area (matching yield engine: visitorBays × 15 sqm)
+      const parking = calculateParkingRequirements(actualTotal, rules.label);
+      const visitorParkingArea = parking ? parking.visitorBays * 15 : 0;
+
+      // Total site coverage including all infrastructure
+      const totalCoverage = totalFootprint + infra.totalInfraArea + visitorParkingArea;
+
+      // Open space
+      const openSpace = lotArea - totalCoverage;
+
+      // Compliance checks (all must pass)
+      const plotRatio = totalGFA / lotArea;
+      const siteCoverageRatio = totalCoverage / lotArea;
+      const openSpaceRatio = openSpace / lotArea;
+      const lotSizePerUnit = lotArea / actualTotal;
+
+      const plotRatioOk = plotRatio <= rules.maxPlotRatio;
+      const siteCoverageOk = siteCoverageRatio <= rules.maxSiteCoverage;
+      const openSpaceOk = openSpaceRatio >= rules.minOpenSpace;
+      const minLotSizeOk = lotSizePerUnit >= rules.minLotSize;
+
+      if (!plotRatioOk || !siteCoverageOk || !openSpaceOk || !minLotSizeOk) continue;
+
+      // Utilization of the correct GFA cap
       const utilization = totalGFA / maxGFA;
-      if (utilization < 0.50 || utilization > 0.95) continue;
 
-      // Prefer higher utilization
+      // Prefer higher utilization among compliant configs
       if (utilization > bestUtilization) {
         bestUtilization = utilization;
         bestConfig = {
@@ -169,6 +217,17 @@ class MixedScenarioService {
           totalGFA: Math.round(totalGFA),
           totalParking: Math.ceil(totalParking),
           utilization: Math.round(utilization * 100),
+          infrastructure: infra,
+          visitorParkingArea,
+          totalCoverage: Math.round(totalCoverage),
+          openSpace: Math.round(openSpace),
+          parking,
+          compliance: {
+            plotRatio: Math.round(plotRatio * 1000) / 1000,
+            siteCoverageRatio: Math.round(siteCoverageRatio * 1000) / 1000,
+            openSpaceRatio: Math.round(openSpaceRatio * 1000) / 1000,
+            lotSizePerUnit: Math.round(lotSizePerUnit),
+          },
         };
       }
     }
@@ -179,8 +238,11 @@ class MixedScenarioService {
   /**
    * Build a complete scenario object with mix breakdown and financial estimates.
    */
-  createScenario(definition, config, prices, lotArea) {
-    const { counts, totalUnits, totalFootprint, totalGFA, totalParking, utilization } = config;
+  createScenario(definition, config, prices, lotArea, rules) {
+    const {
+      counts, totalUnits, totalFootprint, totalGFA, totalParking, utilization,
+      infrastructure, visitorParkingArea, totalCoverage, openSpace, parking, compliance,
+    } = config;
 
     // Mix breakdown with percentages
     const mixBreakdown = [];
@@ -216,7 +278,21 @@ class MixedScenarioService {
       totalParking,
       utilization,
       estimatedGRV,
-      plotRatio: totalGFA / lotArea,
+      plotRatio: compliance.plotRatio,
+      siteCoverageRatio: compliance.siteCoverageRatio,
+      openSpaceRatio: compliance.openSpaceRatio,
+      infrastructure,
+      visitorParkingArea,
+      totalCoverage,
+      openSpace,
+      parking,
+      compliance: {
+        ...compliance,
+        maxPlotRatio: rules.maxPlotRatio,
+        maxSiteCoverage: rules.maxSiteCoverage,
+        minOpenSpace: rules.minOpenSpace,
+        minLotSize: rules.minLotSize,
+      },
     };
   }
 }
