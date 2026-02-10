@@ -1,4 +1,4 @@
-import { DollarSign, TrendingUp, Building2 } from 'lucide-react';
+import { DollarSign, TrendingUp, Building2, Loader2, MapPin } from 'lucide-react';
 import { CONSTRUCTION_QUALITY, DEFAULT_MARKET_PRICES } from '../engines/financialEngine';
 import { formatCurrency } from '../utils/format';
 
@@ -6,6 +6,25 @@ export default function Step2FinancialInputs({ data, onChange }) {
   const update = (field, value) => {
     onChange({ ...data, [field]: value });
   };
+
+  const updatePrice = (field, value) => {
+    onChange({ ...data, [field]: value, _pricesSource: 'user' });
+  };
+
+  const resetToSuburbPrices = () => {
+    if (!data._suburbPrices) return;
+    onChange({
+      ...data,
+      price_2bed: data._suburbPrices.price_2bed,
+      price_3bed: data._suburbPrices.price_3bed,
+      price_4bed: data._suburbPrices.price_4bed,
+      _pricesSource: 'suburb',
+    });
+  };
+
+  const pricesSource = data._pricesSource || 'default';
+  const suburbPrices = data._suburbPrices;
+  const suburb = data.suburb;
 
   return (
     <div className="space-y-8">
@@ -141,10 +160,35 @@ export default function Step2FinancialInputs({ data, onChange }) {
 
       {/* Market Prices Override */}
       <div className="card space-y-4">
-        <h3 className="font-semibold text-slate-800">
+        <h3 className="font-semibold text-slate-800 flex items-center gap-2">
           Expected Sale Prices
-          <span className="ml-2 text-xs font-normal text-slate-400">(Optional — defaults shown)</span>
+          {pricesSource === 'loading' && (
+            <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-amber-600">
+              <Loader2 size={12} className="animate-spin" />
+              Loading prices for {suburb}...
+            </span>
+          )}
+          {pricesSource === 'suburb' && suburbPrices && (
+            <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-emerald-600">
+              <MapPin size={12} />
+              Suburb estimate for {suburbPrices.suburb}
+            </span>
+          )}
+          {pricesSource === 'user' && (
+            <span className="ml-2 text-xs font-normal text-slate-400">(Custom override)</span>
+          )}
+          {pricesSource === 'default' && (
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              {suburb ? '(Optional — Perth-wide defaults)' : '(Optional — defaults shown)'}
+            </span>
+          )}
         </h3>
+
+        {/* Tier label */}
+        {pricesSource === 'suburb' && suburbPrices?.tier && (
+          <p className="text-xs text-slate-500 -mt-2">Based on {suburbPrices.tier} suburb pricing tier</p>
+        )}
+
         <div className="grid grid-cols-3 gap-4">
           {[
             { key: '2bed', label: '2-Bedroom' },
@@ -160,15 +204,29 @@ export default function Step2FinancialInputs({ data, onChange }) {
                   className="input-field pl-8"
                   placeholder={DEFAULT_MARKET_PRICES[key].mid.toLocaleString()}
                   value={data[`price_${key}`] || ''}
-                  onChange={e => update(`price_${key}`, parseFloat(e.target.value) || '')}
+                  onChange={e => updatePrice(`price_${key}`, parseFloat(e.target.value) || '')}
                 />
               </div>
               <div className="mt-1 text-xs text-slate-400">
-                Default: {formatCurrency(DEFAULT_MARKET_PRICES[key].mid)}
+                {pricesSource === 'suburb' && suburbPrices
+                  ? `Suburb estimate for ${suburbPrices.suburb}`
+                  : `Default: ${formatCurrency(DEFAULT_MARKET_PRICES[key].mid)}`}
               </div>
             </div>
           ))}
         </div>
+
+        {/* Reset to suburb estimates */}
+        {pricesSource === 'user' && suburbPrices && (
+          <button
+            type="button"
+            onClick={resetToSuburbPrices}
+            className="inline-flex items-center gap-1 text-xs text-emerald-600 hover:text-emerald-700 hover:underline"
+          >
+            <MapPin size={11} />
+            Reset to suburb estimates for {suburbPrices.suburb}
+          </button>
+        )}
       </div>
     </div>
   );

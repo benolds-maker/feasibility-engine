@@ -8,7 +8,7 @@ import Step4ReportPreferences from './components/Step4ReportPreferences';
 import ResultsDashboard from './components/ResultsDashboard';
 import ScenarioComparison from './components/ScenarioComparison';
 import { generatePDF } from './engines/pdfGenerator';
-import { generateReport, generateScenarios, ApiError } from './services/api';
+import { generateReport, generateScenarios, fetchSuburbPrices, ApiError } from './services/api';
 import { getAllRCodes } from './engines/rCodesEngine';
 
 const DEFAULT_FORM = {
@@ -33,6 +33,9 @@ const DEFAULT_FORM = {
   price_2bed: '',
   price_3bed: '',
   price_4bed: '',
+  _suburbPrices: null,
+  _pricesSource: 'default',
+  _pricesFetchedForSuburb: '',
   // Step 3
   heritageOverlay: false,
   bushfireProne: false,
@@ -97,6 +100,49 @@ function App() {
     // Clean URL params without triggering a reload
     window.history.replaceState({}, '', window.location.pathname);
   }, []);
+
+  // Auto-fetch suburb-specific townhouse prices when suburb is known
+  useEffect(() => {
+    if (!formData.suburb) return;
+
+    const suburbKey = `${formData.suburb}|${formData.postcode}`;
+    // Skip if already fetched for this suburb or user has manually overridden
+    if (formData._pricesFetchedForSuburb === suburbKey) return;
+    if (formData._pricesSource === 'user') return;
+
+    let cancelled = false;
+
+    setFormData(prev => ({
+      ...prev,
+      _pricesSource: 'loading',
+      _pricesFetchedForSuburb: suburbKey,
+    }));
+
+    fetchSuburbPrices(formData.suburb, formData.postcode).then(prices => {
+      if (cancelled) return;
+      if (prices) {
+        setFormData(prev => {
+          // Don't overwrite if user edited prices while we were fetching
+          if (prev._pricesSource === 'user') return prev;
+          return {
+            ...prev,
+            price_2bed: prices.price_2bed,
+            price_3bed: prices.price_3bed,
+            price_4bed: prices.price_4bed,
+            _suburbPrices: prices,
+            _pricesSource: 'suburb',
+          };
+        });
+      } else {
+        setFormData(prev => {
+          if (prev._pricesSource === 'user') return prev;
+          return { ...prev, _pricesSource: 'default' };
+        });
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [formData.suburb, formData.postcode]);
 
   const canProceedStep1 = formData.lotArea && formData.lotWidth && formData.lotDepth && formData.rCode;
   const canProceedStep2 = formData.landCost;

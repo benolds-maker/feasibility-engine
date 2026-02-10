@@ -111,6 +111,22 @@ export async function lookupProperty(address) {
 }
 
 /**
+ * Fetch AI-estimated suburb-specific townhouse sale prices.
+ * Never throws — returns null on any failure.
+ */
+export async function fetchSuburbPrices(suburb, postcode) {
+  try {
+    const response = await request('/property/suburb-prices', {
+      method: 'POST',
+      body: JSON.stringify({ suburb, postcode }),
+    });
+    return response?.prices || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Generate mixed dwelling scenarios for a property.
  * Returns ranked scenarios with cost analysis.
  */

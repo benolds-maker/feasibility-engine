@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import osmService from '../services/openstreetmap.service.js';
 import elevationService from '../services/elevation.service.js';
+import suburbPricingService from '../services/suburbPricing.service.js';
 
 const router = Router();
 
@@ -123,6 +124,18 @@ router.post('/lookup', async (req, res, next) => {
     });
   } catch (err) {
     next(err);
+  }
+});
+
+// POST /api/property/suburb-prices
+router.post('/suburb-prices', async (req, res) => {
+  try {
+    const { suburb, postcode } = req.body;
+    const prices = await suburbPricingService.getSuburbPrices(suburb, postcode);
+    res.json({ success: true, prices });
+  } catch (err) {
+    console.error('Suburb pricing route error:', err.message);
+    res.json({ success: true, prices: null });
   }
 });
 
