@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Building2, ChevronLeft, ChevronRight, Loader2, AlertTriangle, BarChart3 } from 'lucide-react';
 import WizardProgress from './components/WizardProgress';
 import Step1PropertyDetails from './components/Step1PropertyDetails';
@@ -9,6 +9,7 @@ import ResultsDashboard from './components/ResultsDashboard';
 import ScenarioComparison from './components/ScenarioComparison';
 import { generatePDF } from './engines/pdfGenerator';
 import { generateReport, generateScenarios, ApiError } from './services/api';
+import { getAllRCodes } from './engines/rCodesEngine';
 
 const DEFAULT_FORM = {
   // Step 1
@@ -66,6 +67,36 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showScenarios, setShowScenarios] = useState(false);
+
+  // Read URL query params on mount to pre-fill form (e.g. from REIWA scraper)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.toString() === '') return;
+
+    const validRCodes = getAllRCodes();
+    const overrides = {};
+
+    const str = (key) => { const v = params.get(key); if (v) overrides[key] = v; };
+    const num = (key) => { const v = params.get(key); if (v && !isNaN(Number(v))) overrides[key] = Number(v); };
+
+    str('address');
+    str('suburb');
+    str('postcode');
+    num('lotArea');
+    num('landCost');
+
+    const rCode = params.get('rCode');
+    if (rCode && validRCodes.includes(rCode)) {
+      overrides.rCode = rCode;
+    }
+
+    if (Object.keys(overrides).length > 0) {
+      setFormData(prev => ({ ...prev, ...overrides }));
+    }
+
+    // Clean URL params without triggering a reload
+    window.history.replaceState({}, '', window.location.pathname);
+  }, []);
 
   const canProceedStep1 = formData.lotArea && formData.lotWidth && formData.lotDepth && formData.rCode;
   const canProceedStep2 = formData.landCost;
