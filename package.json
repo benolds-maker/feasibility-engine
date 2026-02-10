@@ -9,6 +9,8 @@
     "dev:backend": "node --watch backend/src/server.js",
     "build": "vite build",
     "start": "NODE_ENV=production node backend/src/server.js",
+    "test": "vitest run --config backend/vitest.config.js",
+    "test:watch": "vitest --config backend/vitest.config.js",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -33,6 +35,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^3.2.4"
   }
 }
