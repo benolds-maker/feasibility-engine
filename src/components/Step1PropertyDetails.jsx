@@ -1,12 +1,21 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { MapPin, Ruler, Grid3x3, Search, Loader2, Info, Mountain } from 'lucide-react';
 import { getAllRCodes, getRCodeRules } from '../engines/rCodesEngine';
-import { lookupProperty } from '../services/api';
+import { lookupProperty, autocompleteAddress } from '../services/api';
 
 export default function Step1PropertyDetails({ data, onChange }) {
   const rCodes = getAllRCodes();
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupError, setLookupError] = useState(null);
+
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+  const [autocompleteLoading, setAutocompleteLoading] = useState(false);
+  const debounceRef = useRef(null);
+  const dropdownRef = useRef(null);
+  const inputRef = useRef(null);
 
   const update = (field, value) => {
     onChange({ ...data, [field]: value });
@@ -14,8 +23,9 @@ export default function Step1PropertyDetails({ data, onChange }) {
 
   const selectedRules = data.rCode ? getRCodeRules(data.rCode) : null;
 
-  const handleLookup = async () => {
-    if (!data.address || data.address.trim().length < 5) {
+  const handleLookup = async (addressOverride) => {
+    const address = addressOverride || data.address;
+    if (!address || address.trim().length < 5) {
       setLookupError('Please enter a street address first.');
       return;
     }
@@ -24,19 +34,19 @@ export default function Step1PropertyDetails({ data, onChange }) {
     setLookupError(null);
 
     try {
-      const result = await lookupProperty(data.address);
+      const result = await lookupProperty(address);
 
       if (result.success && result.property) {
         const p = result.property;
         onChange({
           ...data,
+          address: addressOverride || data.address,
           suburb: p.suburb || data.suburb,
           postcode: p.postcode || data.postcode,
           lotArea: p.lotArea || data.lotArea,
           lotWidth: p.frontage || data.lotWidth,
           lotDepth: p.depth || data.lotDepth,
           rCode: p.rCode || data.rCode,
-          // Store lookup metadata for later use
           terrainAnalysis: result.terrainAnalysis || null,
           propertyLookupData: p,
         });
@@ -53,6 +63,111 @@ export default function Step1PropertyDetails({ data, onChange }) {
       setLookupLoading(false);
     }
   };
+
+  // Debounced autocomplete fetch
+  const fetchSuggestions = useCallback(async (query) => {
+    if (!query || query.trim().length < 4) {
+      setSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setAutocompleteLoading(true);
+    try {
+      const results = await autocompleteAddress(query);
+      setSuggestions(results);
+      setShowSuggestions(results.length > 0);
+      setSelectedIndex(-1);
+    } catch {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    } finally {
+      setAutocompleteLoading(false);
+    }
+  }, []);
+
+  const handleAddressChange = (e) => {
+    const value = e.target.value;
+    update('address', value);
+
+    // Clear any pending debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    // Debounce autocomplete
+    debounceRef.current = setTimeout(() => {
+      fetchSuggestions(value);
+    }, 300);
+  };
+
+  const selectSuggestion = (suggestion) => {
+    update('address', suggestion.address);
+    setSuggestions([]);
+    setShowSuggestions(false);
+    setSelectedIndex(-1);
+    // Auto-trigger lookup with the selected address
+    handleLookup(suggestion.address);
+  };
+
+  const handleKeyDown = (e) => {
+    if (!showSuggestions || suggestions.length === 0) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleLookup();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setSelectedIndex(prev =>
+          prev < suggestions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setSelectedIndex(prev =>
+          prev > 0 ? prev - 1 : suggestions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (selectedIndex >= 0 && selectedIndex < suggestions.length) {
+          selectSuggestion(suggestions[selectedIndex]);
+        } else {
+          setShowSuggestions(false);
+          handleLookup();
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        setSelectedIndex(-1);
+        break;
+    }
+  };
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+        inputRef.current && !inputRef.current.contains(e.target)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Cleanup debounce on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
 
   const terrain = data.terrainAnalysis;
   const dataQuality = data.propertyLookupData?.dataQuality;
@@ -75,17 +190,68 @@ export default function Step1PropertyDetails({ data, onChange }) {
         <div>
           <label className="input-label">Street Address</label>
           <div className="flex gap-2">
-            <input
-              type="text"
-              className="input-field flex-1"
-              placeholder="e.g. 123 Example Street, Morley WA 6062"
-              value={data.address || ''}
-              onChange={e => update('address', e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleLookup(); } }}
-            />
+            <div className="relative flex-1">
+              <input
+                ref={inputRef}
+                type="text"
+                className="input-field w-full"
+                placeholder="e.g. 123 Example Street, Morley WA 6062"
+                value={data.address || ''}
+                onChange={handleAddressChange}
+                onKeyDown={handleKeyDown}
+                onFocus={() => {
+                  if (suggestions.length > 0) setShowSuggestions(true);
+                }}
+                autoComplete="off"
+              />
+              {/* Autocomplete dropdown */}
+              {showSuggestions && suggestions.length > 0 && (
+                <div
+                  ref={dropdownRef}
+                  className="absolute z-50 left-0 right-0 top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg overflow-hidden"
+                >
+                  {autocompleteLoading && (
+                    <div className="flex items-center gap-2 px-3 py-2 text-xs text-slate-400">
+                      <Loader2 size={12} className="animate-spin" />
+                      Loading suggestions...
+                    </div>
+                  )}
+                  {suggestions.map((suggestion, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`w-full text-left px-3 py-2.5 text-sm transition-colors border-b border-slate-50 last:border-b-0 ${
+                        idx === selectedIndex
+                          ? 'bg-emerald-50 text-emerald-900'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                      onMouseDown={(e) => {
+                        e.preventDefault(); // Prevent input blur
+                        selectSuggestion(suggestion);
+                      }}
+                      onMouseEnter={() => setSelectedIndex(idx)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <MapPin size={14} className="text-slate-400 shrink-0" />
+                        <span>{suggestion.address}</span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Loading indicator for autocomplete (shown when no results yet) */}
+              {autocompleteLoading && !showSuggestions && (data.address || '').length >= 4 && (
+                <div className="absolute z-50 left-0 right-0 top-full mt-1 rounded-lg border border-slate-200 bg-white shadow-lg px-3 py-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-400">
+                    <Loader2 size={12} className="animate-spin" />
+                    Searching addresses...
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               type="button"
-              onClick={handleLookup}
+              onClick={() => handleLookup()}
               disabled={lookupLoading}
               className="inline-flex items-center gap-2 rounded-lg border-2 border-emerald-500 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 transition-all hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
             >

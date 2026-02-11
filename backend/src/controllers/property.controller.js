@@ -127,6 +127,21 @@ router.post('/lookup', async (req, res, next) => {
   }
 });
 
+// GET /api/property/autocomplete?q=...
+router.get('/autocomplete', async (req, res) => {
+  try {
+    const q = req.query.q || '';
+    if (q.trim().length < 3) {
+      return res.json({ success: true, suggestions: [] });
+    }
+    const suggestions = await osmService.autocompleteAddress(q);
+    res.json({ success: true, suggestions });
+  } catch (err) {
+    console.error('Autocomplete error:', err.message);
+    res.json({ success: true, suggestions: [] });
+  }
+});
+
 // POST /api/property/suburb-prices
 router.post('/suburb-prices', async (req, res) => {
   try {

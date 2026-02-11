@@ -128,6 +128,21 @@ export async function fetchSuburbPrices(suburb, postcode) {
 }
 
 /**
+ * Autocomplete address suggestions from partial text.
+ * Returns { success, suggestions: [{ address, suburb, postcode }] }
+ * Never throws — returns empty array on any failure.
+ */
+export async function autocompleteAddress(query) {
+  try {
+    const params = new URLSearchParams({ q: query });
+    const response = await request(`/property/autocomplete?${params}`);
+    return response?.suggestions || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Generate mixed dwelling scenarios for a property.
  * Returns ranked scenarios with cost analysis.
  */
