@@ -5,6 +5,7 @@ const CONSTRUCTION_QUALITY = {
   budget: { label: 'Budget', rateMin: 1800, rateMax: 2200, midRate: 2000 },
   standard: { label: 'Standard', rateMin: 2200, rateMax: 2600, midRate: 2400 },
   premium: { label: 'Premium', rateMin: 2600, rateMax: 3200, midRate: 2900 },
+  custom: { label: 'Custom', rateMin: null, rateMax: null, midRate: null },
 };
 
 // WA Stamp Duty rates (2025)
@@ -34,6 +35,7 @@ export function calculateFeasibility(params) {
 
     // Financial parameters
     constructionQuality = 'standard',
+    customBuildCostPerSqm = null,
     targetMargin = 0.20,
     debtRatio = 0.70,
     interestRate = 0.075,
@@ -51,7 +53,11 @@ export function calculateFeasibility(params) {
     companyName = '',
   } = params;
 
-  const quality = CONSTRUCTION_QUALITY[constructionQuality] || CONSTRUCTION_QUALITY.standard;
+  let quality = CONSTRUCTION_QUALITY[constructionQuality] || CONSTRUCTION_QUALITY.standard;
+  // For custom quality, use the user-supplied rate
+  if (constructionQuality === 'custom' && customBuildCostPerSqm) {
+    quality = { ...quality, midRate: customBuildCostPerSqm };
+  }
   const numDwellings = yieldResult.totalUnits;
   const totalGFA = yieldResult.totalGFA;
 

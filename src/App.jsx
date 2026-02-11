@@ -27,6 +27,7 @@ const DEFAULT_FORM = {
   landCost: '',
   targetMargin: 20,
   constructionQuality: 'standard',
+  customBuildCostPerSqm: '',
   debtRatio: 70,
   interestRate: 7.5,
   timelineMonths: 18,
@@ -185,6 +186,7 @@ function App() {
         financial: {
           landCost: formData.landCost,
           constructionQuality: formData.constructionQuality,
+          customBuildCostPerSqm: formData.customBuildCostPerSqm || null,
           debtRatio: formData.debtRatio,
           interestRate: formData.interestRate,
           timelineMonths: formData.timelineMonths,

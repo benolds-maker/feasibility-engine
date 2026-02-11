@@ -95,7 +95,7 @@ export default function Step2FinancialInputs({ data, onChange }) {
           <Building2 size={18} className="text-slate-500" />
           Construction Quality
         </h3>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-4 gap-3">
           {Object.entries(CONSTRUCTION_QUALITY).map(([key, q]) => (
             <button
               key={key}
@@ -108,15 +108,44 @@ export default function Step2FinancialInputs({ data, onChange }) {
               }`}
             >
               <div className="font-bold text-slate-900">{q.label}</div>
-              <div className="mt-1 text-xs text-slate-500">
-                ${q.rateMin.toLocaleString()} – ${q.rateMax.toLocaleString()} /sqm
-              </div>
-              <div className="mt-0.5 text-xs font-medium text-emerald-600">
-                Mid: ${q.midRate.toLocaleString()}/sqm
-              </div>
+              {key !== 'custom' ? (
+                <>
+                  <div className="mt-1 text-xs text-slate-500">
+                    ${q.rateMin.toLocaleString()} – ${q.rateMax.toLocaleString()} /sqm
+                  </div>
+                  <div className="mt-0.5 text-xs font-medium text-emerald-600">
+                    Mid: ${q.midRate.toLocaleString()}/sqm
+                  </div>
+                </>
+              ) : (
+                <div className="mt-1 text-xs text-slate-500">
+                  Enter your own $/sqm
+                </div>
+              )}
             </button>
           ))}
         </div>
+        {data.constructionQuality === 'custom' && (
+          <div>
+            <label className="input-label">Build Cost per sqm ($)</label>
+            <div className="relative max-w-xs">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-medium">$</span>
+              <input
+                type="number"
+                className="input-field pl-8"
+                placeholder="e.g. 2500"
+                value={data.customBuildCostPerSqm || ''}
+                onChange={e => update('customBuildCostPerSqm', parseFloat(e.target.value) || '')}
+              />
+              <span className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm">/sqm</span>
+            </div>
+            {data.customBuildCostPerSqm && (
+              <p className="mt-1 text-xs text-emerald-600 font-medium">
+                Using ${Number(data.customBuildCostPerSqm).toLocaleString()}/sqm for all calculations
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Financing */}

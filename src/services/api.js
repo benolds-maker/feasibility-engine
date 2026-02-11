@@ -54,6 +54,7 @@ export async function generateReport(formData) {
       landCost: formData.landCost,
       targetMargin: formData.targetMargin,
       constructionQuality: formData.constructionQuality,
+      customBuildCostPerSqm: formData.customBuildCostPerSqm || null,
       debtRatio: formData.debtRatio,
       interestRate: formData.interestRate,
       timelineMonths: formData.timelineMonths,

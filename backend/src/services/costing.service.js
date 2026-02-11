@@ -23,6 +23,7 @@ class CostingService {
       lotArea,
       terrainAnalysis = null,
       constructionQuality = 'standard',
+      customBuildCostPerSqm = null,
       landCost = 0,
       timelineMonths = 18,
       interestRate = 0.07,
@@ -33,7 +34,9 @@ class CostingService {
 
     // ── Base Construction ──────────────────────────
     const baseRates = { budget: 2000, standard: 2400, premium: 2900 };
-    const baseRate = baseRates[constructionQuality] || 2400;
+    const baseRate = (constructionQuality === 'custom' && customBuildCostPerSqm)
+      ? customBuildCostPerSqm
+      : (baseRates[constructionQuality] || 2400);
     const adjustedRate = Math.round(baseRate * terrainMultiplier);
     const baseBuildCost = totalGFA * adjustedRate;
 
