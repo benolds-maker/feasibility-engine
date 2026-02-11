@@ -126,8 +126,50 @@ class OpenStreetMapService {
   }
 
   /**
+   * Extract the significant street name words from an address string.
+   * Strips house number, street type suffixes, and suburb/state — returns
+   * just the distinctive words that identify the street.
+   * "45 Ocean View Drive, Edgewater" -> ["ocean", "view"]
+   * "999 Fake Street Perth" -> ["fake"]
+   */
+  extractStreetWords(address) {
+    const stripped = this.stripHouseNumber(address).split(',')[0].trim();
+    const suffixes = new Set([
+      'street', 'st', 'road', 'rd', 'drive', 'dr', 'avenue', 'ave',
+      'way', 'place', 'pl', 'lane', 'ln', 'crescent', 'cres', 'court',
+      'ct', 'terrace', 'tce', 'parade', 'pde', 'boulevard', 'blvd',
+      'circuit', 'cct', 'close', 'cl', 'highway', 'hwy',
+    ]);
+
+    const words = stripped.toLowerCase().split(/\s+/);
+
+    // Find where the street type suffix is — everything before it is the street name
+    const typeIndex = words.findIndex(w => suffixes.has(w));
+    if (typeIndex > 0) {
+      return words.slice(0, typeIndex).filter(w => w.length > 1);
+    }
+
+    // No recognised suffix — return all words longer than 2 chars
+    return words.filter(w => w.length > 2);
+  }
+
+  /**
+   * Check whether a geocode result's display name matches the street
+   * the user actually typed. Prevents "999 Fake Street" resolving to
+   * an unrelated location via fuzzy matching.
+   */
+  validateStreetMatch(inputAddress, resultDisplayName) {
+    const streetWords = this.extractStreetWords(inputAddress);
+    if (streetWords.length === 0) return true; // nothing to validate
+
+    const resultLower = resultDisplayName.toLowerCase();
+    return streetWords.some(word => resultLower.includes(word));
+  }
+
+  /**
    * Geocode an address string to coordinates, suburb, and postcode.
    * Multi-strategy: Photon -> Nominatim (full) -> Nominatim (without house number)
+   * Each result is validated to ensure the street name actually matches the input.
    * @param {string} address - Full street address
    * @returns {Promise<Object>} { lat, lng, displayName, suburb, postcode, state, boundingBox }
    */
@@ -135,10 +177,11 @@ class OpenStreetMapService {
     // Strategy 1: Photon (best fuzzy matching for Australian addresses)
     try {
       const photonResult = await this.geocodeWithPhoton(address);
-      if (photonResult) {
+      if (photonResult && this.validateStreetMatch(address, photonResult.displayName)) {
         console.log('[geocode] Resolved via Photon:', photonResult.displayName);
         return photonResult;
       }
+      if (photonResult) console.log('[geocode] Photon result rejected (street mismatch):', photonResult.displayName);
     } catch (err) {
       console.warn('[geocode] Photon failed:', err.message);
     }
@@ -146,10 +189,11 @@ class OpenStreetMapService {
     // Strategy 2: Nominatim with full address
     try {
       const nominatimResult = await this.geocodeWithNominatim(address);
-      if (nominatimResult) {
+      if (nominatimResult && this.validateStreetMatch(address, nominatimResult.displayName)) {
         console.log('[geocode] Resolved via Nominatim (full):', nominatimResult.displayName);
         return nominatimResult;
       }
+      if (nominatimResult) console.log('[geocode] Nominatim result rejected (street mismatch):', nominatimResult.displayName);
     } catch (err) {
       console.warn('[geocode] Nominatim (full) failed:', err.message);
     }
@@ -165,10 +209,11 @@ class OpenStreetMapService {
       for (const query of queries) {
         try {
           const fallbackResult = await this.geocodeWithNominatim(query);
-          if (fallbackResult) {
+          if (fallbackResult && this.validateStreetMatch(address, fallbackResult.displayName)) {
             console.log('[geocode] Resolved via Nominatim (no house number):', fallbackResult.displayName);
             return fallbackResult;
           }
+          if (fallbackResult) console.log('[geocode] Nominatim stripped result rejected (street mismatch):', fallbackResult.displayName);
         } catch (err) {
           console.warn('[geocode] Nominatim (stripped) failed:', err.message);
         }
